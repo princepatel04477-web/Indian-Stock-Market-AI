@@ -1,0 +1,298 @@
+# Model Configuration for Indian Stock AI
+
+# =============================================================================
+# Quantitative Models
+# =============================================================================
+
+lightgbm:
+  objective: multiclass
+  num_class: 3
+  metric: multi_logloss
+  boosting_type: gbdt
+  num_leaves: 31
+  learning_rate: 0.05
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  bagging_freq: 5
+  min_child_samples: 20
+  n_estimators: 1000
+  early_stopping_rounds: 50
+  verbose: -1
+  
+  # Strategy-specific overrides
+  intraday:
+    num_leaves: 63
+    learning_rate: 0.03
+    n_estimators: 2000
+    
+  swing:
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 1500
+    
+  positional:
+    num_leaves: 15
+    learning_rate: 0.01
+    n_estimators: 500
+
+xgboost:
+  objective: multi:softprob
+  num_class: 3
+  max_depth: 6
+  learning_rate: 0.05
+  n_estimators: 1000
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 1
+  gamma: 0
+  reg_alpha: 0
+  reg_lambda: 1
+  early_stopping_rounds: 50
+  
+  intraday:
+    max_depth: 8
+    learning_rate: 0.03
+    n_estimators: 2000
+    
+  swing:
+    max_depth: 6
+    learning_rate: 0.05
+    n_estimators: 1500
+    
+  positional:
+    max_depth: 4
+    learning_rate: 0.01
+    n_estimators: 500
+
+temporal_fusion_transformer:
+  hidden_size: 32
+  attention_head_size: 4
+  dropout: 0.1
+  hidden_continuous_size: 16
+  learning_rate: 0.001
+  max_epochs: 50
+  batch_size: 128
+  gradient_clip_val: 0.1
+  reduce_on_plateau_patience: 4
+  
+  # Multi-horizon forecasting
+  max_encoder_length: 96    # History to use (e.g., 96 * 15min = 24 hours)
+  max_prediction_length: 12  # Steps to predict
+  
+  # For different timeframes
+  intraday_15m:
+    max_encoder_length: 48   # 12 hours
+    max_prediction_length: 8  # 2 hours
+    
+  daily:
+    max_encoder_length: 60   # 60 trading days
+    max_prediction_length: 20 # predict 20 days
+
+# =============================================================================
+# LLM Configuration
+# =============================================================================
+
+llm:
+  # Base model options (choose one)
+  base_models:
+    - mistralai/Mistral-7B-Instruct-v0.2
+    - meta-llama/Llama-2-7b-chat-hf
+    - tiiuae/falcon-7b-instruct
+    
+  selected_model: mistralai/Mistral-7B-Instruct-v0.2
+  
+  # LoRA configuration
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules:
+      - q_proj
+      - v_proj
+      - k_proj
+      - o_proj
+    bias: none
+    task_type: CAUSAL_LM
+    
+  # Training configuration
+  training:
+    num_epochs: 3
+    batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 2.0e-4
+    weight_decay: 0.01
+    warmup_ratio: 0.03
+    lr_scheduler_type: cosine
+    max_seq_length: 2048
+    
+    # Quantization for training (4-bit for memory efficiency)
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    use_nested_quant: false
+    
+  # Generation settings
+  generation:
+    max_new_tokens: 512
+    temperature: 0.3
+    top_p: 0.9
+    top_k: 50
+    repetition_penalty: 1.1
+    do_sample: true
+
+# =============================================================================
+# Feature Engineering
+# =============================================================================
+
+features:
+  # Technical indicators
+  technical:
+    ema_periods: [8, 21, 50, 200]
+    sma_periods: [10, 20, 50, 100, 200]
+    rsi_period: 14
+    macd:
+      fast: 12
+      slow: 26
+      signal: 9
+    atr_period: 14
+    bollinger:
+      period: 20
+      std: 2.0
+    stochastic:
+      k_period: 14
+      d_period: 3
+    adx_period: 14
+    cci_period: 20
+    williams_r_period: 14
+    
+  # Rolling statistics windows
+  rolling_windows: [5, 15, 60, 240, 1440]  # in bars/minutes
+  
+  # Lag features
+  lag_periods: [1, 2, 3, 5, 10, 15, 30]
+  
+  # Options-specific
+  options:
+    strikes_range: 10  # +/- from ATM
+    expiry_consideration: [0, 7, 14, 30]  # days to expiry buckets
+    greeks: [delta, gamma, theta, vega]
+    iv_windows: [5, 15, 30]
+    
+  # Macro features
+  macro:
+    include_vix: true
+    include_fii_dii: true
+    include_sector_flow: true
+    
+  # Calendar features
+  calendar:
+    include_day_of_week: true
+    include_month: true
+    include_expiry_flag: true
+    include_budget_day: true
+    include_rbi_policy_day: true
+
+# =============================================================================
+# Label Configuration
+# =============================================================================
+
+labels:
+  # Forward return windows (in bars)
+  forward_windows:
+    intraday_15m: 15
+    intraday_30m: 30
+    intraday_1h: 60
+    swing_1d: 1440  # assuming 1-min bars
+    swing_5d: 7200
+    positional_1m: 43200
+    
+  # Threshold methods
+  method: atr  # Options: atr, fixed, percentile
+  
+  # ATR-based threshold
+  atr_multiplier: 0.5
+  
+  # Fixed thresholds
+  fixed:
+    buy_threshold: 0.005    # 0.5%
+    sell_threshold: -0.005
+    
+  # Include costs in label
+  include_costs: true
+  slippage_bps: 5
+  commission_bps: 1
+
+# =============================================================================
+# Ensemble Configuration
+# =============================================================================
+
+ensemble:
+  models:
+    - name: lgbm
+      weight: 0.4
+    - name: xgb
+      weight: 0.3
+    - name: tft
+      weight: 0.3
+      
+  aggregation: weighted_average  # Options: weighted_average, voting, stacking
+  
+  # Meta-model for stacking
+  meta_model:
+    type: logistic_regression
+    cv_folds: 5
+
+# =============================================================================
+# Training & Validation
+# =============================================================================
+
+training:
+  # Walk-forward validation
+  walk_forward:
+    enabled: true
+    train_window_days: 252
+    test_window_days: 63
+    step_days: 21
+    
+  # Time-based split (if not walk-forward)
+  time_split:
+    train_ratio: 0.7
+    val_ratio: 0.15
+    test_ratio: 0.15
+    
+  # Cross-validation for hyper-param tuning
+  cv:
+    type: time_series  # Options: time_series, purged_group_time_series
+    n_splits: 5
+    gap: 5  # embargo period in bars
+    
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 50
+    min_delta: 0.0001
+
+# =============================================================================
+# Inference & Production
+# =============================================================================
+
+inference:
+  # Model selection
+  model_to_use: ensemble  # Options: lgbm, xgb, tft, ensemble
+  
+  # Confidence thresholds
+  confidence:
+    min_for_trade: 0.6
+    strong_signal: 0.8
+    
+  # Position sizing based on confidence
+  position_sizing:
+    method: kelly  # Options: fixed, kelly, volatility_adjusted
+    max_position_pct: 10
+    kelly_fraction: 0.25  # Fractional Kelly
+    
+  # Risk limits
+  risk:
+    max_daily_loss_pct: 3
+    max_drawdown_pct: 20
+    max_correlation: 0.7  # max correlation with existing positions
